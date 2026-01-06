@@ -34,24 +34,25 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. XỬ LÝ TEXT & LOGIC (ĐÃ SỬA LỖI)
+# 2. XỬ LÝ TEXT & LOGIC (ĐÃ SỬA LỖI SYNTAX ERROR)
 # ==============================================================================
 
 def remove_invalid_xml_chars(text):
     """
-    Hàm quan trọng: Loại bỏ ký tự lạ làm hỏng file PowerPoint.
-    Giữ lại các ký tự in được (printable) và dấu xuống dòng.
+    Loại bỏ ký tự lạ để tránh lỗi Repair trong PowerPoint.
+    Giữ lại ký tự in được, xuống dòng (\n) và tab (\t).
     """
     if not text: return ""
-    # Chỉ giữ lại ký tự hợp lệ, loại bỏ các ký tự điều khiển (control chars)
-    return "".join(ch for ch in text if ch.isprintable() or ch == '\n' or ch == '\r')
+    # Cách này an toàn hơn dùng regex phức tạp
+    return "".join(ch for ch in text if ch.isprintable() or ch in ['\n', '\r', '\t'])
 
 def clean_text(text):
     """Làm sạch text cơ bản"""
     if not text: return ""
-    # Xóa các tag 
+    # Xóa tag 
     text = re.sub(r'\', '', text)
-    # Xóa khoảng trắng thừa
+    # Loại bỏ các ký tự backslash đơn lẻ nếu có (SỬA LỖI Ở ĐÂY)
+    text = text.replace('\\', '') 
     return text.strip()
 
 def format_chemical_text(paragraph, text, font_size=18, is_bold=False, color=None):
@@ -59,10 +60,10 @@ def format_chemical_text(paragraph, text, font_size=18, is_bold=False, color=Non
     paragraph.clear()
     p = paragraph
     
-    # 1. Lọc sạch ký tự gây lỗi Repair trước khi xử lý
+    # 1. Lọc sạch ký tự gây lỗi
     safe_text = remove_invalid_xml_chars(text)
     
-    # 2. Tách chuỗi để xử lý số và ion
+    # 2. Tách chuỗi
     tokens = re.split(r'(\d+[+-]?|\s+)', safe_text)
     
     for token in tokens:
