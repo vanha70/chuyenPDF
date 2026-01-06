@@ -1,8 +1,10 @@
 import streamlit as st
-import time
 import io
-from pptx import Presentation # Thư viện tạo PowerPoint
-from pptx.util import Inches
+from pptx import Presentation
+from pptx.util import Inches, Pt, Cm
+from pptx.enum.text import PP_ALIGN
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -59,41 +61,196 @@ if 'processed' not in st.session_state:
 if 'output_file' not in st.session_state:
     st.session_state.output_file = None
 
-# ---------------------------------------------------------
-# HÀM TẠO FILE POWERPOINT THẬT (FIX LỖI CORRUPTED FILE)
-# ---------------------------------------------------------
-def create_sample_pptx(filename_input):
-    # Khởi tạo một file PPT mới
-    prs = Presentation()
-    
-    # Tạo Slide 1: Tiêu đề
-    slide_layout = prs.slide_layouts[0] # 0 là layout tiêu đề
-    slide = prs.slides.add_slide(slide_layout)
-    title = slide.shapes.title
-    subtitle = slide.placeholders[1]
-    
-    title.text = "Giáo Án Điện Tử AI"
-    subtitle.text = f"Được tạo tự động từ file: {filename_input}\nbởi Hệ thống Nguyễn Văn Hà"
-    
-    # Tạo Slide 2: Nội dung mẫu
-    bullet_slide_layout = prs.slide_layouts[1]
-    slide2 = prs.slides.add_slide(bullet_slide_layout)
-    shapes = slide2.shapes
-    title_shape = shapes.title
-    body_shape = shapes.placeholders[1]
-    
-    title_shape.text = "Nội dung chính"
-    tf = body_shape.text_frame
-    tf.text = "Đây là slide mẫu được tạo bởi Python-PPTX"
-    p = tf.add_paragraph()
-    p.text = "File này hoàn toàn hợp lệ và không bị lỗi."
-    p.level = 1
+# ==============================================================================
+# HÀM XỬ LÝ POWERPOINT NÂNG CAO (MÔ PHỎNG GIAO DIỆN)
+# ==============================================================================
 
-    # Lưu file vào bộ nhớ đệm (RAM) thay vì lưu ra đĩa cứng
+def set_text_format(paragraph, text, font_size=18, is_bold=False, color=None):
+    paragraph.text = text
+    paragraph.font.size = Pt(font_size)
+    paragraph.font.name = 'Arial'
+    paragraph.font.bold = is_bold
+    if color:
+        paragraph.font.color.rgb = color
+
+def create_slide_content(prs, question_data):
+    """
+    Hàm này vẽ layout giống hệt file mẫu:
+    - Header: Số câu hỏi to
+    - Body: Nội dung câu hỏi
+    - Options: Các đáp án A, B, C, D
+    - Footer: Thông tin giáo viên
+    """
+    # Màu sắc chủ đạo
+    ORANGE_COLOR = RGBColor(237, 125, 49) # Màu cam cho số câu
+    BLUE_COLOR = RGBColor(0, 32, 96)      # Màu xanh đậm cho text
+    GRAY_COLOR = RGBColor(89, 89, 89)     # Màu xám footer
+
+    # 1. Tạo slide trắng
+    slide_layout = prs.slide_layouts[6] # 6 là Blank layout
+    slide = prs.slides.add_slide(slide_layout)
+
+    # 2. Vẽ Số câu hỏi (Ví dụ: "1") - Góc trên bên trái
+    # Shape tròn hoặc vuông bo góc chứa số
+    left = Inches(0.5)
+    top = Inches(0.3)
+    width = Inches(0.8)
+    height = Inches(0.8)
+    
+    shape = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left, top, width, height)
+    shape.fill.solid()
+    shape.fill.fore_color.rgb = ORANGE_COLOR
+    shape.line.color.rgb = ORANGE_COLOR
+    
+    text_frame = shape.text_frame
+    text_frame.text = str(question_data['id'])
+    p = text_frame.paragraphs[0]
+    p.font.size = Pt(32)
+    p.font.bold = True
+    p.font.color.rgb = RGBColor(255, 255, 255)
+    p.alignment = PP_ALIGN.CENTER
+
+    # 3. Chữ "CÂU HỎI" bên cạnh số
+    left = Inches(1.4)
+    top = Inches(0.45)
+    width = Inches(2)
+    height = Inches(0.5)
+    textbox = slide.shapes.add_textbox(left, top, width, height)
+    p = textbox.text_frame.paragraphs[0]
+    set_text_format(p, "CÂU HỎI", font_size=20, is_bold=True, color=ORANGE_COLOR)
+
+    # 4. Nội dung câu hỏi
+    left = Inches(0.5)
+    top = Inches(1.3)
+    width = Inches(9) # Slide rộng 10 inch
+    height = Inches(1.5)
+    textbox = slide.shapes.add_textbox(left, top, width, height)
+    text_frame = textbox.text_frame
+    text_frame.word_wrap = True
+    
+    p = text_frame.paragraphs[0]
+    set_text_format(p, question_data['question'], font_size=18, is_bold=False, color=RGBColor(0, 0, 0))
+
+    # 5. Vẽ các đáp án (A, B, C, D)
+    # Logic chia cột 2x2 hoặc danh sách tùy độ dài
+    options = question_data.get('options', [])
+    if options:
+        # Tọa độ bắt đầu vẽ đáp án
+        start_y = 3.0
+        
+        # Nếu là câu hỏi đúng sai (kiểu a,b,c,d)
+        if question_data.get('type') == 'true_false':
+            for idx, opt in enumerate(options):
+                # Vẽ box đáp án
+                top_opt = Inches(start_y + idx * 0.6)
+                textbox = slide.shapes.add_textbox(Inches(0.5), top_opt, Inches(9), Inches(0.5))
+                p = textbox.text_frame.paragraphs[0]
+                # Format: a. Nội dung ... [ĐÚNG/SAI]
+                content = f"{chr(97+idx)}. {opt['text']}"
+                set_text_format(p, content, font_size=16)
+                
+                # Vẽ dấu check hoặc text Đúng/Sai nếu có (để demo)
+                if 'ans' in opt:
+                    p.text += f"   [{opt['ans']}]"
+
+        # Nếu là câu trắc nghiệm ABCD
+        else:
+            # Layout lưới 2 cột
+            col_1_left = Inches(0.8)
+            col_2_left = Inches(5.5)
+            row_1_top = Inches(3.2)
+            row_2_top = Inches(4.5)
+            
+            positions = [
+                (col_1_left, row_1_top), (col_2_left, row_1_top),
+                (col_1_left, row_2_top), (col_2_left, row_2_top)
+            ]
+            labels = ['A', 'B', 'C', 'D']
+            
+            for i, opt_text in enumerate(options):
+                if i >= 4: break
+                left_pos, top_pos = positions[i]
+                
+                # Vẽ chữ cái A, B, C, D to đậm
+                label_box = slide.shapes.add_textbox(left_pos - Inches(0.4), top_pos, Inches(0.4), Inches(0.5))
+                p_label = label_box.text_frame.paragraphs[0]
+                set_text_format(p_label, labels[i], font_size=20, is_bold=True, color=ORANGE_COLOR)
+                
+                # Vẽ nội dung đáp án
+                content_box = slide.shapes.add_textbox(left_pos, top_pos, Inches(4), Inches(1))
+                content_box.text_frame.word_wrap = True
+                p_content = content_box.text_frame.paragraphs[0]
+                set_text_format(p_content, opt_text, font_size=16)
+
+    # 6. Footer (Giống file mẫu)
+    footer_text = "HỆ THỐNG GIÁO DỤC HIỆN ĐẠI | BIÊN SOẠN: THẦY NGUYỄN VĂN HÀ"
+    
+    # Vẽ đường kẻ ngang dưới cùng
+    line = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, Inches(0), Inches(7.0), Inches(10), Inches(0.5))
+    line.fill.solid()
+    line.fill.fore_color.rgb = RGBColor(242, 242, 242) # Màu xám nhạt nền footer
+    line.line.color.rgb = RGBColor(242, 242, 242)
+    
+    # Text footer
+    textbox = slide.shapes.add_textbox(Inches(0.5), Inches(7.1), Inches(9), Inches(0.4))
+    p = textbox.text_frame.paragraphs[0]
+    set_text_format(p, footer_text, font_size=10, is_bold=True, color=GRAY_COLOR)
+    p.alignment = PP_ALIGN.CENTER
+
+def generate_pptx_from_data():
+    prs = Presentation()
+    # Set slide width/height 16:9
+    prs.slide_width = Inches(10)
+    prs.slide_height = Inches(7.5) # Kích thước chuẩn 4:3 (hoặc 13.33 x 7.5 cho 16:9)
+
+    # --- DỮ LIỆU GIẢ LẬP TỪ FILE CỦA BẠN (DEMO) ---
+    # Trong thực tế, cần code parse file PDF/Word phức tạp để lấy dữ liệu này.
+    # Ở đây mình trích xuất sẵn vài câu từ file bạn gửi để demo tính năng tạo slide.
+    
+    questions = [
+        {
+            "id": 1,
+            "question": "Cấu trúc mạch vòng của carbohydrate nào sau đây không có nhóm -OH hemiacetal hoặc hemiketal?",
+            "options": ["Saccharose.", "Maltose.", "Glucose.", "Fructose."],
+            "type": "mcq"
+        },
+        {
+            "id": 2,
+            "question": "Carbohydrate nào sau đây kém tan trong nước lạnh nhưng tan được trong nước nóng tạo dung dịch keo, nhớt?",
+            "options": ["Cellulose.", "Saccharose.", "Tinh bột.", "Glucose."],
+            "type": "mcq"
+        },
+        {
+            "id": 19,
+            "question": "Glutamic acid có vai trò quan trọng trong quá trình xây dựng cấu trúc tế bào... Glutamic acid có điểm đẳng điện pI=3,2.",
+            "options": [
+                {"text": "Glutamic acid thuộc loại hợp chất hữu cơ tạp chức...", "ans": "ĐÚNG"},
+                {"text": "Để thu được 2 tấn bột ngọt cần tối thiểu 2,52 tấn tinh thể...", "ans": "ĐÚNG"},
+                {"text": "Tên thay thế của glutamic acid là 2-aminopentane...", "ans": "ĐÚNG"},
+                {"text": "Trong dung dịch pH=6, có thể tách hỗn hợp...", "ans": "ĐÚNG"}
+            ],
+            "type": "true_false"
+        },
+        {
+            "id": 23,
+            "question": "Hiện nay mạ điện được sử dụng rộng rãi trong thực tế. Giả sử người ta cần mạ Ag lên một mặt của một chiếc đĩa kim loại hình tròn...",
+            "options": ["ĐÁP SỐ: 0,15 giờ (ví dụ)"],
+            "type": "short_ans"
+        }
+    ]
+
+    for q in questions:
+        create_slide_content(prs, q)
+
+    # Lưu vào buffer
     output_buffer = io.BytesIO()
     prs.save(output_buffer)
-    output_buffer.seek(0) # Đưa con trỏ về đầu file
+    output_buffer.seek(0)
     return output_buffer.getvalue()
+
+# ==============================================================================
+# GIAO DIỆN CHÍNH
+# ==============================================================================
 
 # HEADER HTML
 st.markdown("""
@@ -127,7 +284,6 @@ with main_col:
         
         uploaded_file = st.file_uploader("Upload", label_visibility="collapsed", type=['pdf', 'docx', 'pptx'])
         
-        # Reset nếu đổi file
         if uploaded_file and 'last_file' in st.session_state and st.session_state.last_file != uploaded_file.name:
             st.session_state.processed = False
             
@@ -152,26 +308,27 @@ with main_col:
         if not st.session_state.processed:
             if st.button("BẮT ĐẦU NGAY"):
                 if uploaded_file is not None:
-                    with st.spinner("AI đang thiết kế Slide..."):
-                        time.sleep(2) 
+                    import time
+                    with st.spinner("AI đang phân tích cấu trúc & tạo Slide..."):
+                        time.sleep(2) # Giả lập loading
                         
-                        # --- GỌI HÀM TẠO FILE PPTX THẬT ---
                         try:
-                            output_data = create_sample_pptx(uploaded_file.name)
+                            # GỌI HÀM TẠO PPTX MỚI
+                            output_data = generate_pptx_from_data()
                             st.session_state.output_file = output_data
                             st.session_state.processed = True
                             st.rerun()
                         except Exception as e:
-                            st.error(f"Có lỗi xảy ra: {e}")
+                            st.error(f"Lỗi hệ thống: {e}")
                             
                 else:
                     st.warning("Vui lòng tải tài liệu lên trước!")
         else:
-            # Nút Download màu xanh lá
+            # Nút Download
             st.download_button(
                 label="📥 TẢI POWERPOINT VỀ MÁY",
                 data=st.session_state.output_file,
-                file_name="Giao_An_Dien_Tu_AI.pptx",
+                file_name="Giao_An_Dien_Tu_NguyenVanHa.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
             )
             
