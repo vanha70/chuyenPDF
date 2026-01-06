@@ -34,7 +34,7 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. XỬ LÝ TEXT & LOGIC (ĐÃ SỬA LỖI)
+# 2. XỬ LÝ TEXT & LOGIC (ĐÃ SỬA LỖI SYNTAX ERROR)
 # ==============================================================================
 
 def remove_invalid_xml_chars(text):
@@ -48,7 +48,7 @@ def clean_text(text):
     if not text: return ""
     # Xóa tag 
     text = re.sub(r'\', '', text)
-    # Loại bỏ dấu gạch chéo ngược (Fix lỗi SyntaxError tại đây)
+    # Loại bỏ dấu gạch chéo ngược bằng hàm replace (AN TOÀN TUYỆT ĐỐI)
     text = text.replace('\\', '') 
     return text.strip()
 
