@@ -8,7 +8,7 @@ from pptx.dml.color import RGBColor
 from pptx.enum.shapes import MSO_SHAPE
 
 # ==============================================================================
-# 1. CẤU HÌNH & CSS
+# 1. CẤU HÌNH & CSS GIAO DIỆN
 # ==============================================================================
 st.set_page_config(page_title="PDF to PowerPoint - Nguyễn Văn Hà", page_icon="⚡", layout="wide", initial_sidebar_state="collapsed")
 
@@ -34,32 +34,35 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==============================================================================
-# 2. XỬ LÝ TEXT & LOGIC
+# 2. XỬ LÝ TEXT & LOGIC (ĐÃ SỬA LỖI)
 # ==============================================================================
 
 def remove_invalid_xml_chars(text):
     """
-    Hàm quan trọng: Loại bỏ ký tự lạ làm hỏng file PowerPoint (Lỗi Repair)
+    Hàm quan trọng: Loại bỏ ký tự lạ làm hỏng file PowerPoint.
+    Giữ lại các ký tự in được (printable) và dấu xuống dòng.
     """
     if not text: return ""
-    # Chỉ giữ lại các ký tự in được và tiếng Việt
-    return "".join(ch for ch in text if ch.isprintable() or ch == '\n')
+    # Chỉ giữ lại ký tự hợp lệ, loại bỏ các ký tự điều khiển (control chars)
+    return "".join(ch for ch in text if ch.isprintable() or ch == '\n' or ch == '\r')
 
 def clean_text(text):
     """Làm sạch text cơ bản"""
     if not text: return ""
-    # Fix lỗi SyntaxError cũ bằng cách dùng regex đơn giản hơn
-    text = re.sub(r'\', '', text) 
+    # Xóa các tag 
+    text = re.sub(r'\', '', text)
+    # Xóa khoảng trắng thừa
     return text.strip()
 
 def format_chemical_text(paragraph, text, font_size=18, is_bold=False, color=None):
-    """Xử lý chỉ số trên/dưới cho hóa học (H2SO4, Cu2+)"""
+    """Xử lý hiển thị công thức hóa học (H2SO4, Cu2+)"""
     paragraph.clear()
     p = paragraph
-    # Làm sạch text trước khi đưa vào slide để tránh lỗi Corrupted
+    
+    # 1. Lọc sạch ký tự gây lỗi Repair trước khi xử lý
     safe_text = remove_invalid_xml_chars(text)
     
-    # Tách chuỗi để xử lý số
+    # 2. Tách chuỗi để xử lý số và ion
     tokens = re.split(r'(\d+[+-]?|\s+)', safe_text)
     
     for token in tokens:
@@ -72,18 +75,18 @@ def format_chemical_text(paragraph, text, font_size=18, is_bold=False, color=Non
         if color:
             run.font.color.rgb = color
             
-        # Logic nhận diện hóa học
-        if re.match(r'^\d+$', token): # Số đứng riêng -> Subscript (H2)
+        # Logic nhận diện: Số đứng riêng (H2) -> Subscript. Số kèm dấu (2+, -) -> Superscript
+        if re.match(r'^\d+$', token): 
             run.text = token
             run.font.subscript = True
-        elif re.match(r'^\d*[+-]$', token): # Ion (2+, -) -> Superscript
+        elif re.match(r'^\d*[+-]$', token): 
             run.text = token
             run.font.superscript = True
         else:
             run.text = token
 
 def parse_exam_content(full_content):
-    """Phân tích nội dung text thành danh sách câu hỏi"""
+    """Phân tích nội dung text đầu vào"""
     questions = []
     lines = full_content.split('\n')
     
@@ -94,34 +97,35 @@ def parse_exam_content(full_content):
         raw_line = clean_text(line)
         if not raw_line: continue
         
-        # 1. Phát hiện số thứ tự câu hỏi (Vd: "1", "2")
+        # 1. Phát hiện số câu hỏi (VD: "1", "2")
         if re.match(r'^\d+$', raw_line):
             if current_q: questions.append(current_q)
             current_q = {
                 "id": raw_line,
                 "content": "",
                 "options": [],
-                "type": "mcq"
+                "type": "mcq" # Mặc định trắc nghiệm
             }
             state = "QUESTION"
             continue
             
-        # 2. Bỏ qua dòng chữ vô nghĩa
+        # 2. Bỏ qua các dòng tiêu đề thừa
         if "CÂU HỎI" in raw_line.upper(): continue
         if "HỆ THỐNG GIÁO DỤC" in raw_line.upper(): continue
         if "BIÊN SOẠN" in raw_line.upper(): continue
             
-        # 3. Phát hiện đáp án A, B, C, D
+        # 3. Phát hiện đáp án (A, B, C, D hoặc a., b.)
         if re.match(r'^[A-D]$', raw_line) or re.match(r'^[a-d]\.', raw_line):
              if current_q:
-                # Nếu gặp a. b. -> Câu đúng sai
+                # Nếu gặp a., b. -> Chuyển sang dạng Đúng/Sai
                 if re.match(r'^[a-d]\.', raw_line):
                     current_q['type'] = "true_false"
+                
                 current_q['options'].append({"label": raw_line, "text": ""})
                 state = "OPTIONS"
              continue
 
-        # 4. Phát hiện dấu ✦ hoặc kết quả
+        # 4. Phát hiện dấu hiệu đáp án đúng/sai/kết quả
         if "✦" in raw_line:
              if current_q and current_q['options']:
                  current_q['options'][-1]['is_correct'] = True
@@ -150,7 +154,7 @@ def parse_exam_content(full_content):
     return questions
 
 # ==============================================================================
-# 3. TẠO SLIDE (RENDER ENGINE)
+# 3. TẠO SLIDE POWERPOINT
 # ==============================================================================
 
 def create_pptx_file(questions):
@@ -163,9 +167,9 @@ def create_pptx_file(questions):
     GRAY = RGBColor(120, 120, 120)
 
     for q in questions:
-        slide = prs.slides.add_slide(prs.slide_layouts[6]) 
+        slide = prs.slides.add_slide(prs.slide_layouts[6]) # Slide trắng
         
-        # --- SỐ CÂU ---
+        # --- SỐ CÂU (Góc trái) ---
         shape_num = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, Inches(0.5), Inches(0.4), Inches(0.8), Inches(0.8))
         shape_num.fill.solid()
         shape_num.fill.fore_color.rgb = ORANGE
@@ -176,7 +180,7 @@ def create_pptx_file(questions):
         p_num.font.bold = True
         p_num.alignment = PP_ALIGN.CENTER
         
-        # --- LABEL ---
+        # --- TIÊU ĐỀ "CÂU HỎI" ---
         tb_lbl = slide.shapes.add_textbox(Inches(1.4), Inches(0.5), Inches(2), Inches(0.5))
         p_lbl = tb_lbl.text_frame.paragraphs[0]
         p_lbl.text = "CÂU HỎI"
@@ -184,7 +188,7 @@ def create_pptx_file(questions):
         p_lbl.font.bold = True
         p_lbl.font.color.rgb = ORANGE
 
-        # --- NỘI DUNG ---
+        # --- NỘI DUNG CÂU HỎI ---
         tb_content = slide.shapes.add_textbox(Inches(0.5), Inches(1.5), Inches(12), Inches(1.5))
         tb_content.text_frame.word_wrap = True
         format_chemical_text(tb_content.text_frame.paragraphs[0], q['content'], font_size=24, is_bold=True, color=NAVY)
@@ -193,6 +197,7 @@ def create_pptx_file(questions):
         start_y = 3.5
         
         if q['type'] == 'mcq':
+            # Chia 2 cột A,B - C,D
             col_coords = [(Inches(1.0), Inches(3.5)), (Inches(7.0), Inches(3.5)), 
                           (Inches(1.0), Inches(5.0)), (Inches(7.0), Inches(5.0))]
             
@@ -209,28 +214,32 @@ def create_pptx_file(questions):
                 p_opt_lbl.font.bold = True
                 p_opt_lbl.font.color.rgb = ORANGE
                 
-                # Text đáp án
+                # Nội dung đáp án
                 tb_opt_txt = slide.shapes.add_textbox(left, top, Inches(5.5), Inches(1.2))
                 tb_opt_txt.text_frame.word_wrap = True
                 format_chemical_text(tb_opt_txt.text_frame.paragraphs[0], opt['text'], font_size=20)
                 
-                # Highlight đúng
+                # Highlight đáp án đúng (Khung đỏ)
                 if opt.get('is_correct'):
                     rect = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left - Inches(0.6), top - Inches(0.1), Inches(6), Inches(1.3))
-                    rect.fill.background()
-                    rect.line.color.rgb = RGBColor(255, 0, 0)
+                    rect.fill.background() # Trong suốt
+                    rect.line.color.rgb = RGBColor(255, 0, 0) # Viền đỏ
                     rect.line.width = Pt(2)
 
         elif q['type'] == 'true_false':
+            # Liệt kê dọc
             for idx, opt in enumerate(q['options']):
                 top = Inches(start_y + idx * 0.9)
                 tb_row = slide.shapes.add_textbox(Inches(0.5), top, Inches(12), Inches(0.8))
                 p_row = tb_row.text_frame.paragraphs[0]
+                
                 full_text = f"{opt['label']} {opt['text']}"
                 if opt.get('result'): full_text += f"   [{opt['result']}]"
+                
                 format_chemical_text(p_row, full_text, font_size=20)
 
         elif q['type'] == 'short_ans':
+             # Hộp đáp số
              tb_ans = slide.shapes.add_textbox(Inches(1.0), Inches(4.0), Inches(10), Inches(1.0))
              p_ans = tb_ans.text_frame.paragraphs[0]
              p_ans.text = q.get('answer_text', '')
@@ -276,15 +285,17 @@ st.markdown("""
 </div>
 """, unsafe_allow_html=True)
 
-# MAIN
+# MAIN UI
 _, main_col, _ = st.columns([1, 8, 1])
 with main_col:
     col1, col2 = st.columns(2, gap="large")
 
+    # Cột 1: Nhập liệu
     with col1:
         st.markdown('<div class="custom-card"><div class="step-header" style="color:#f97316">BƯỚC 1: DỮ LIỆU</div>', unsafe_allow_html=True)
-        uploaded_file = st.file_uploader("Chọn file Text/Word", type=['txt'])
+        uploaded_file = st.file_uploader("Chọn file Text (.txt)", type=['txt'])
         
+        # Dữ liệu mẫu an toàn
         default_content = """1
 CÂU HỎI
 Cấu trúc mạch vòng của carbohydrate nào sau đây không có nhóm -OH hemiacetal hoặc hemiketal?
@@ -315,22 +326,26 @@ Glucose.
             content_input = stringio.read()
             st.success(f"Đã đọc file: {uploaded_file.name}")
         else:
-            st.info("Dán nội dung vào ô dưới hoặc dùng dữ liệu mẫu:")
+            st.info("Dán nội dung vào bên dưới hoặc dùng dữ liệu mẫu:")
             content_input = st.text_area("Nội dung thô:", value=default_content, height=200)
         st.markdown('</div>', unsafe_allow_html=True)
 
+    # Cột 2: Xử lý
     with col2:
         st.markdown('<div class="custom-card"><div class="step-header" style="color:#06b6d4">BƯỚC 2: XUẤT POWERPOINT</div>', unsafe_allow_html=True)
         if st.button("BẮT ĐẦU CHUYỂN ĐỔI"):
             import time
-            with st.spinner("Đang khởi tạo AI Engine & Xử lý hóa học..."):
+            with st.spinner("Đang xử lý dữ liệu và tạo slide..."):
                 time.sleep(1)
                 try:
+                    # Parse dữ liệu
                     questions_data = parse_exam_content(content_input)
+                    
                     if not questions_data:
-                        st.warning("Không tìm thấy câu hỏi nào! Vui lòng kiểm tra lại dữ liệu đầu vào.")
+                        st.warning("Không tìm thấy câu hỏi! Vui lòng kiểm tra lại nội dung đầu vào.")
                     else:
                         st.toast(f"Đã tìm thấy {len(questions_data)} câu hỏi!")
+                        # Tạo PPT
                         pptx_file = create_pptx_file(questions_data)
                         st.session_state.pptx_out = pptx_file
                         st.success("Xử lý thành công!")
