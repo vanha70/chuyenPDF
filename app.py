@@ -1,5 +1,8 @@
 import streamlit as st
 import time
+import io
+from pptx import Presentation # Thư viện tạo PowerPoint
+from pptx.util import Inches
 
 # 1. CẤU HÌNH TRANG
 st.set_page_config(
@@ -36,34 +39,11 @@ st.markdown("""
     div[data-testid="stFileUploader"] { border: 2px dashed #334155; border-radius: 15px; padding: 30px; background-color: rgba(30, 41, 59, 0.5); text-align: center; transition: all 0.3s ease; }
     div[data-testid="stFileUploader"]:hover { border-color: #f97316; background-color: rgba(249, 115, 22, 0.05); }
     
-    /* Style chung cho nút Button và Download Button */
-    div.stButton > button, div.stDownloadButton > button { 
-        width: 100%; 
-        background-color: #1e293b; 
-        color: #94a3b8; 
-        border: none; 
-        padding: 20px; 
-        font-size: 16px; 
-        font-weight: 800; 
-        border-radius: 12px; 
-        text-transform: uppercase; 
-        letter-spacing: 1px; 
-        transition: all 0.3s; 
-        height: 80px; 
-    }
+    div.stButton > button, div.stDownloadButton > button { width: 100%; background-color: #1e293b; color: #94a3b8; border: none; padding: 20px; font-size: 16px; font-weight: 800; border-radius: 12px; text-transform: uppercase; letter-spacing: 1px; transition: all 0.3s; height: 80px; }
     div.stButton > button:hover { background-color: #0ea5e9; color: white; box-shadow: 0 0 20px rgba(14, 165, 233, 0.4); }
     
-    /* Style riêng cho nút Download (Màu xanh lá cho nổi bật) */
-    div.stDownloadButton > button {
-        background-color: rgba(34, 197, 94, 0.2);
-        color: #22c55e;
-        border: 1px solid #22c55e;
-    }
-    div.stDownloadButton > button:hover {
-        background-color: #22c55e;
-        color: white;
-        box-shadow: 0 0 20px rgba(34, 197, 94, 0.4);
-    }
+    div.stDownloadButton > button { background-color: rgba(34, 197, 94, 0.2); color: #22c55e; border: 1px solid #22c55e; }
+    div.stDownloadButton > button:hover { background-color: #22c55e; color: white; box-shadow: 0 0 20px rgba(34, 197, 94, 0.4); }
 
     .step-header { text-align: center; margin-bottom: 25px; text-transform: uppercase; font-weight: 700; font-size: 14px; letter-spacing: 1px; }
     .icon-box { width: 50px; height: 50px; margin: 0 auto 15px auto; display: flex; align-items: center; justify-content: center; border-radius: 12px; font-size: 24px; }
@@ -73,18 +53,47 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# 3. QUẢN LÝ TRẠNG THÁI (SESSION STATE)
+# 3. QUẢN LÝ TRẠNG THÁI
 if 'processed' not in st.session_state:
     st.session_state.processed = False
 if 'output_file' not in st.session_state:
     st.session_state.output_file = None
 
-# Hàm giả lập xử lý AI
-def process_file_mock(file):
-    # Đây là nơi bạn đặt code AI thật.
-    # Hiện tại mình tạo 1 file rỗng để test tính năng download
-    dummy_data = b"This is a PowerPoint file content" 
-    return dummy_data
+# ---------------------------------------------------------
+# HÀM TẠO FILE POWERPOINT THẬT (FIX LỖI CORRUPTED FILE)
+# ---------------------------------------------------------
+def create_sample_pptx(filename_input):
+    # Khởi tạo một file PPT mới
+    prs = Presentation()
+    
+    # Tạo Slide 1: Tiêu đề
+    slide_layout = prs.slide_layouts[0] # 0 là layout tiêu đề
+    slide = prs.slides.add_slide(slide_layout)
+    title = slide.shapes.title
+    subtitle = slide.placeholders[1]
+    
+    title.text = "Giáo Án Điện Tử AI"
+    subtitle.text = f"Được tạo tự động từ file: {filename_input}\nbởi Hệ thống Nguyễn Văn Hà"
+    
+    # Tạo Slide 2: Nội dung mẫu
+    bullet_slide_layout = prs.slide_layouts[1]
+    slide2 = prs.slides.add_slide(bullet_slide_layout)
+    shapes = slide2.shapes
+    title_shape = shapes.title
+    body_shape = shapes.placeholders[1]
+    
+    title_shape.text = "Nội dung chính"
+    tf = body_shape.text_frame
+    tf.text = "Đây là slide mẫu được tạo bởi Python-PPTX"
+    p = tf.add_paragraph()
+    p.text = "File này hoàn toàn hợp lệ và không bị lỗi."
+    p.level = 1
+
+    # Lưu file vào bộ nhớ đệm (RAM) thay vì lưu ra đĩa cứng
+    output_buffer = io.BytesIO()
+    prs.save(output_buffer)
+    output_buffer.seek(0) # Đưa con trỏ về đầu file
+    return output_buffer.getvalue()
 
 # HEADER HTML
 st.markdown("""
@@ -118,7 +127,7 @@ with main_col:
         
         uploaded_file = st.file_uploader("Upload", label_visibility="collapsed", type=['pdf', 'docx', 'pptx'])
         
-        # Reset trạng thái nếu người dùng đổi file khác
+        # Reset nếu đổi file
         if uploaded_file and 'last_file' in st.session_state and st.session_state.last_file != uploaded_file.name:
             st.session_state.processed = False
             
@@ -127,7 +136,7 @@ with main_col:
             st.markdown(f'<div style="text-align: center; color: #22c55e; font-size: 12px; margin-top: 10px;">✅ Đã nhận: {uploaded_file.name}</div>', unsafe_allow_html=True)
         else:
             st.markdown('<div style="text-align: center; color: #64748b; font-size: 12px; margin-top: -10px;">TẢI FILE PDF / WORD / ẢNH</div>', unsafe_allow_html=True)
-            st.session_state.processed = False # Reset nếu xóa file
+            st.session_state.processed = False
             
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -140,37 +149,32 @@ with main_col:
             <div style="height: 20px;"></div> 
         """, unsafe_allow_html=True)
         
-        # LOGIC ĐỔI NÚT BẤM
         if not st.session_state.processed:
-            # Hiện nút BẮT ĐẦU nếu chưa xử lý
             if st.button("BẮT ĐẦU NGAY"):
                 if uploaded_file is not None:
                     with st.spinner("AI đang thiết kế Slide..."):
-                        # Giả lập thời gian chạy AI
                         time.sleep(2) 
                         
-                        # Gọi hàm xử lý (thay bằng code AI thật của bạn vào đây)
-                        output_data = process_file_mock(uploaded_file)
-                        
-                        # Lưu kết quả vào session state
-                        st.session_state.output_file = output_data
-                        st.session_state.processed = True
-                        
-                        # Rerun để đổi giao diện sang nút Download
-                        st.rerun()
+                        # --- GỌI HÀM TẠO FILE PPTX THẬT ---
+                        try:
+                            output_data = create_sample_pptx(uploaded_file.name)
+                            st.session_state.output_file = output_data
+                            st.session_state.processed = True
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Có lỗi xảy ra: {e}")
+                            
                 else:
                     st.warning("Vui lòng tải tài liệu lên trước!")
         else:
-            # Hiện nút DOWNLOAD nếu đã xử lý xong
-            # Mình đã CSS lại nút này thành màu xanh lá (Success)
+            # Nút Download màu xanh lá
             st.download_button(
                 label="📥 TẢI POWERPOINT VỀ MÁY",
                 data=st.session_state.output_file,
-                file_name="Giao_An_Dien_Tu_AI.pptx", # Tên file tải về
+                file_name="Giao_An_Dien_Tu_AI.pptx",
                 mime="application/vnd.openxmlformats-officedocument.presentationml.presentation"
             )
             
-            # Nút làm lại (nhỏ bên dưới nếu muốn reset)
             if st.button("🔄 Làm file khác", key="reset_btn"):
                 st.session_state.processed = False
                 st.rerun()
